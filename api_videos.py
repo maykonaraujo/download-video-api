@@ -10,10 +10,19 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import tempfile
 import shutil
+import ssl
+import certifi
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Forçar o uso do certifi para certificados SSL
+os.environ['SSL_CERT_FILE'] = certifi.where()
+os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+# Desativar verificação de certificado SSL para yt-dlp (não recomendado em produção, mas pode resolver o problema temporariamente)
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Criação da aplicação FastAPI
 app = FastAPI(
@@ -47,11 +56,11 @@ async def get_video_info(url: str = Query(..., description="URL do vídeo do You
     try:
         logger.info(f"Obtendo informações do vídeo: {url}")
         
-        # Configurações do yt-dlp para evitar detecção como bot
+        # Configurações do yt-dlp para evitar detecção como bot e problemas de SSL
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'nocheckcertificate': True,
+            'nocheckcertificate': True,  # Ignora erros de certificado
             'ignoreerrors': False,
             'no_call_home': True,
             'format': 'best',
@@ -118,7 +127,7 @@ async def download_video(
                 'outtmpl': os.path.join(temp_dir, 'video.%(ext)s'),
                 'quiet': True,
                 'no_warnings': True,
-                'nocheckcertificate': True,
+                'nocheckcertificate': True,  # Ignora erros de certificado
                 'no_call_home': True,
                 'noprogress': True,
             }
