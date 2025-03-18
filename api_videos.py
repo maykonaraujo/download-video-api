@@ -121,20 +121,22 @@ async def download_video(
             # Configurar formato baseado na resolução solicitada
             format_str = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best[ext=mp4]/best'
             
-            # Configurações do yt-dlp
+            logger.info(f"Obtendo informações do vídeo: {url}")
+        
             ydl_opts = {
-                'format': format_str,
-                'outtmpl': os.path.join(temp_dir, 'video.%(ext)s'),
                 'quiet': True,
                 'no_warnings': True,
-                'nocheckcertificate': True,  # Ignora erros de certificado
+                'nocheckcertificate': True,
+                'ssl_verify': False,  # Contorna o erro SSL temporariamente
+                'ignoreerrors': False,
                 'no_call_home': True,
+                'format': 'best',
                 'noprogress': True,
             }
             
             # Baixar o vídeo
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                info = ydl.extract_info(url, download=False)
                 filename = ydl.prepare_filename(info)
             
             # Verificar se o arquivo existe
