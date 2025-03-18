@@ -1,12 +1,15 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse
-from pytube import YouTube
+import yt_dlp
 import io
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import uvicorn
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import tempfile
+import shutil
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO)
@@ -19,21 +22,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configurar CORS para permitir requisições de diferentes origens
+# Configurar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permitir todas as origens
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Permitir todos os métodos
-    allow_headers=["*"],  # Permitir todos os headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class VideoInfo(BaseModel):
     title: str
-    author: str
-    length: int
-    thumbnail_url: str
-    available_resolutions: list
+    uploader: str
+    duration: int
+    thumbnail: str
+    formats: List[Dict[str, Any]]
 
 @app.get("/")
 async def root():
@@ -44,19 +47,49 @@ async def get_video_info(url: str = Query(..., description="URL do vídeo do You
     try:
         logger.info(f"Obtendo informações do vídeo: {url}")
         
-        # Usar a forma mais simples possível
-        yt = YouTube(url)
+        # Configurações do yt-dlp para evitar detecção como bot
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'no_call_home': True,
+            'format': 'best',
+            'noprogress': True,
+        }
         
-        # Tentar obter streams disponíveis
-        streams = yt.streams.filter(progressive=True)
-        available_resolutions = [f"{stream.resolution} - {stream.mime_type}" for stream in streams]
+        # Obter informações do vídeo
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+        # Extrair formatos disponíveis
+        formats = []
+        for f in info.get('formats', []):
+            if f.get('height') and f.get('ext') == 'mp4':
+                formats.append({
+                    'format_id': f.get('format_id'),
+                    'resolution': f'{f.get("height")}p',
+                    'ext': f.get('ext'),
+                    'filesize': f.get('filesize')
+                })
+        
+        # Remover duplicados com base na resolução
+        unique_formats = []
+        seen_resolutions = set()
+        for fmt in formats:
+            if fmt['resolution'] not in seen_resolutions:
+                seen_resolutions.add(fmt['resolution'])
+                unique_formats.append(fmt)
+        
+        # Ordenar por resolução (maior para menor)
+        unique_formats.sort(key=lambda x: int(x['resolution'].replace('p', '')), reverse=True)
         
         video_info = VideoInfo(
-            title=yt.title,
-            author=yt.author,
-            length=yt.length,
-            thumbnail_url=yt.thumbnail_url,
-            available_resolutions=available_resolutions
+            title=info.get('title', 'Unknown'),
+            uploader=info.get('uploader', 'Unknown'),
+            duration=info.get('duration', 0),
+            thumbnail=info.get('thumbnail', ''),
+            formats=unique_formats
         )
         
         return video_info
@@ -72,41 +105,65 @@ async def download_video(
 ):
     try:
         logger.info(f"Iniciando download do vídeo: {url} com resolução {resolution}")
+        temp_dir = tempfile.mkdtemp()
         
-        # Usar a forma mais simples possível
-        yt = YouTube(url)
-        
-        # Selecionar stream com a resolução desejada ou a mais próxima disponível
-        stream = yt.streams.filter(progressive=True, res=resolution).first()
-        
-        # Se não encontrar a resolução específica, pegar a melhor disponível
-        if not stream:
-            logger.warning(f"Resolução {resolution} não disponível, usando a melhor resolução disponível")
-            stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
+        try:
+            height = int(resolution.replace('p', ''))
+            # Configurar formato baseado na resolução solicitada
+            format_str = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best[ext=mp4]/best'
             
-        if not stream:
-            logger.error("Nenhum stream disponível para download")
-            raise HTTPException(status_code=404, detail="Nenhum stream disponível para download")
-        
-        # Download do vídeo para buffer
-        buffer = io.BytesIO()
-        stream.stream_to_buffer(buffer)
-        buffer.seek(0)
-        
-        # Nome do arquivo para download
-        filename = f"{yt.title.replace(' ', '_')}.mp4"
-        filename = ''.join(c for c in filename if c.isalnum() or c in ['_', '.', '-'])
-        
-        # Retornar o vídeo como resposta de streaming
-        return StreamingResponse(
-            buffer,
-            media_type="video/mp4",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Length": str(buffer.getbuffer().nbytes)
+            # Configurações do yt-dlp
+            ydl_opts = {
+                'format': format_str,
+                'outtmpl': os.path.join(temp_dir, 'video.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'no_call_home': True,
+                'noprogress': True,
             }
-        )
-        
+            
+            # Baixar o vídeo
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+            
+            # Verificar se o arquivo existe
+            if not os.path.exists(filename):
+                # Tentar encontrar o arquivo com extensão mp4
+                possible_filename = os.path.join(temp_dir, 'video.mp4')
+                if os.path.exists(possible_filename):
+                    filename = possible_filename
+                else:
+                    # Procurar qualquer arquivo no diretório
+                    files = [f for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
+                    if files:
+                        filename = os.path.join(temp_dir, files[0])
+                    else:
+                        raise FileNotFoundError("Arquivo de vídeo não encontrado após o download")
+            
+            # Preparar nome para o download
+            safe_title = ''.join(c for c in info.get('title', 'video') if c.isalnum() or c in ['_', '.', '-']).replace(' ', '_')
+            download_filename = f"{safe_title}.mp4"
+            
+            # Ler o arquivo para memória
+            with open(filename, 'rb') as f:
+                buffer = io.BytesIO(f.read())
+            
+            # Retornar o vídeo como resposta de streaming
+            return StreamingResponse(
+                buffer,
+                media_type="video/mp4",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{download_filename}"',
+                    "Content-Length": str(os.path.getsize(filename))
+                }
+            )
+            
+        finally:
+            # Limpar arquivos temporários
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
     except Exception as e:
         logger.error(f"Erro ao baixar vídeo: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao baixar vídeo: {str(e)}")
