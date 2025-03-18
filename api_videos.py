@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from pytube import YouTube
 import io
-import random
 import logging
 from typing import Optional
 import uvicorn
@@ -13,19 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Lista de user agents para simular diferentes navegadores
-user_agents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"
-]
-
 # Criação da aplicação FastAPI
 app = FastAPI(
     title="YouTube Video Downloader API",
-    description="API para download de vídeos do YouTube com headers que evitam detecção como bot",
+    description="API para download de vídeos do YouTube",
     version="1.0.0"
 )
 
@@ -47,24 +37,15 @@ class VideoInfo(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "YouTube Video Downloader API. Use /download endpoint with a URL parameter."}
+    return {"message": "YouTube Video Downloader API. Use /info para informações e /download para baixar vídeos."}
 
 @app.get("/info")
 async def get_video_info(url: str = Query(..., description="URL do vídeo do YouTube")):
     try:
         logger.info(f"Obtendo informações do vídeo: {url}")
         
-        # Usar um User-Agent aleatório para o pytube
-        user_agent = random.choice(user_agents)
-        
-        # Na versão mais recente do pytube, definimos o user agent desta forma
-        yt = YouTube(
-            url,
-            use_oauth=False,
-            allow_oauth_cache=False,
-            use_invidious=False,
-            proxies=None
-        )
+        # Usar a forma mais simples possível
+        yt = YouTube(url)
         
         # Tentar obter streams disponíveis
         streams = yt.streams.filter(progressive=True)
@@ -92,14 +73,8 @@ async def download_video(
     try:
         logger.info(f"Iniciando download do vídeo: {url} com resolução {resolution}")
         
-        # Na versão mais recente do pytube, definimos as configurações desta forma
-        yt = YouTube(
-            url,
-            use_oauth=False,
-            allow_oauth_cache=False,
-            use_invidious=False,
-            proxies=None
-        )
+        # Usar a forma mais simples possível
+        yt = YouTube(url)
         
         # Selecionar stream com a resolução desejada ou a mais próxima disponível
         stream = yt.streams.filter(progressive=True, res=resolution).first()
