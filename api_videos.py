@@ -54,23 +54,19 @@ async def get_video_info(url: str = Query(..., description="URL do vídeo do You
     try:
         logger.info(f"Obtendo informações do vídeo: {url}")
         
-        # Usar um User-Agent aleatório
-        headers = {
-            'User-Agent': random.choice(user_agents),
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Connection': 'keep-alive',
-            'DNT': '1',  # Do Not Track
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0',
-            'Referer': 'https://www.google.com/'
-        }
+        # Usar um User-Agent aleatório para o pytube
+        user_agent = random.choice(user_agents)
         
-        # Criar instância do YouTube com os headers personalizados
-        yt = YouTube(url)
-        yt._http._headers.update(headers)  # Adicionar headers personalizados
+        # Na versão mais recente do pytube, definimos o user agent desta forma
+        yt = YouTube(
+            url,
+            use_oauth=False,
+            allow_oauth_cache=False,
+            use_invidious=False,
+            proxies=None
+        )
         
-        # Obter streams disponíveis
+        # Tentar obter streams disponíveis
         streams = yt.streams.filter(progressive=True)
         available_resolutions = [f"{stream.resolution} - {stream.mime_type}" for stream in streams]
         
@@ -96,21 +92,14 @@ async def download_video(
     try:
         logger.info(f"Iniciando download do vídeo: {url} com resolução {resolution}")
         
-        # Usar um User-Agent aleatório
-        headers = {
-            'User-Agent': random.choice(user_agents),
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Connection': 'keep-alive',
-            'DNT': '1',  # Do Not Track
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0',
-            'Referer': 'https://www.google.com/'
-        }
-        
-        # Criar instância do YouTube com os headers personalizados
-        yt = YouTube(url)
-        yt._http._headers.update(headers)  # Adicionar headers personalizados
+        # Na versão mais recente do pytube, definimos as configurações desta forma
+        yt = YouTube(
+            url,
+            use_oauth=False,
+            allow_oauth_cache=False,
+            use_invidious=False,
+            proxies=None
+        )
         
         # Selecionar stream com a resolução desejada ou a mais próxima disponível
         stream = yt.streams.filter(progressive=True, res=resolution).first()
